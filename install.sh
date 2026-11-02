@@ -36,7 +36,7 @@ Environment="SPEAKERS=$SPEAKERS"
 Environment="FALLBACK_IPS=$FALLBACK_IPS"
 Environment=IDLE_S=${IDLE_S:-20}
 Environment=HOMEPOD_USER=$HOMEPOD_USER
-ExecStart=$DIR/homepods-service.sh
+ExecStart="$DIR/homepods-service.sh"
 Restart=always
 RestartSec=3
 
