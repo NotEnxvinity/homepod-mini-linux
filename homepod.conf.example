@@ -1,0 +1,30 @@
+# Copy to homepod.conf and edit. homepod.conf is git-ignored.
+
+# AirPlay names of your two minis, exactly as they show in the Home app.
+# The first one is used as the PTP clock source. For a single mini, list one name.
+SPEAKERS="Living Room Left,Living Room Right"
+
+# Optional: their IP addresses in the same order. If they answer, the Bonjour scan is skipped,
+# so audio starts faster. Give them DHCP reservations on your router if you use this.
+FALLBACK_IPS=""
+
+# Total delay in milliseconds. 70 is the default; raise it if you hear dropouts.
+LAT_MS=70
+
+# Seconds of silence before the minis are released so your Mac/iPhone can use them.
+IDLE_S=20
+
+# Linux user whose desktop audio is captured. Defaults to whoever runs install.sh.
+# HOMEPOD_USER=deck
+
+# ---- Optional dedicated Wi-Fi (wifi/ scripts only) ----
+# Your home Wi-Fi name; the Steam Machine hosts a copy of it on its own channel for the minis.
+SSID="YourWiFiName"
+# MAC addresses of the minis (Home app -> speaker -> settings, or `ip neigh` after they connect).
+MINI_MACS="aa:bb:cc:dd:ee:01 aa:bb:cc:dd:ee:02"
+# Network interfaces: wired uplink and Wi-Fi card.
+ETH_IF=enp5s0
+WLAN_IF=wlan0
+# NetworkManager connection names to disable while the access point runs.
+WIRED_CON="Steam Wired Connection"
+WIFI_CLIENT_CON="YourWiFiName"

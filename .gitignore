@@ -1,0 +1,6 @@
+homepod.conf
+.venv/
+__pycache__/
+*.pcap
+wifi/hostapd
+wifi/hostapd_cli
