@@ -33,6 +33,8 @@ Regular AirPlay 2 from Linux (PipeWire's RAOP module, OwnTone, etc.) works with 
 
 `homepodd.py` puts all of that together: a small PTP follower that locks onto the primary mini's Sync and Follow_Up messages (with kernel receive timestamps), pairing, RTSP, and encryption from [pyatv](https://github.com/postlund/pyatv), and a scheduler that sends each packet at its exact PTP time to both speakers. It also answers retransmit requests from a per-speaker backlog.
 
+The byte-level details (SETUP fields, the PTP offset filter, packet layouts, encryption and buffering) are in [PROTOCOL.md](PROTOCOL.md).
+
 ## Requirements
 
 - Linux with **PipeWire** (with `pactl`/`parec`) and **systemd**. SteamOS 3 works out of the box.
@@ -59,7 +61,7 @@ Then play something. The **HomePods** output is already the default.
 | `journalctl -u homepods -f` | Live log: sessions, buffer health, clock offset |
 | `./install.sh <ms>` | Change latency (raise it if you hear dropouts) |
 | `./uninstall.sh` | Remove the service |
-| `sudo .venv/bin/python homepodd.py --dry` | Offline self-test, no speakers needed |
+| `.venv/bin/python homepodd.py --dry` | Offline self-test, no speakers or root needed |
 
 ### Tuning
 
@@ -92,6 +94,7 @@ SteamOS doesn't ship `hostapd`. Either install it from your distro, or extract t
 | File | Purpose |
 |---|---|
 | `homepodd.py` | The sender: PTP follower, AirPlay 2 sessions, realtime stream, idle release |
+| `PROTOCOL.md` | Wire-level notes: session setup, PTP, packet formats, buffering |
 | `homepods-service.sh` | Run by systemd: creates and captures the PipeWire output, watchdog |
 | `install.sh` / `uninstall.sh` | Virtualenv, systemd unit, config |
 | `homepod.conf.example` | All settings, copied to `homepod.conf` (git-ignored) |

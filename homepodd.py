@@ -10,7 +10,9 @@ Env:  SPEAKERS="Left Name,Right Name"  (AirPlay names, clock-source speaker firs
       FALLBACK_IPS="192.168.1.20,192.168.1.21"  (optional, same order; skips the Bonjour scan)
       LAT_MS (default 70)   IDLE_S (default 20)   FMT=be|le (byte order of stdin, default be)
       SENDER_NAME (name the minis see, default: hostname)
-      sudo ./homepodd.py --dry     offline self-test (no speakers needed)
+      CLOCK=gm|port (clock identity put in the timing packets: the grandmaster's from Announce,
+                     default, or the port identity from Sync)
+      ./homepodd.py --dry     offline self-test (no speakers or root needed)
 """
 import array, asyncio, os, plistlib, random, signal, socket, struct, sys, threading, time
 from uuid import uuid4
@@ -24,10 +26,7 @@ SENDER_NAME = os.environ.get("SENDER_NAME") or socket.gethostname()
 IDLE_S = float(os.environ.get("IDLE_S", "20"))
 FMT = os.environ.get("FMT", "be")
 IPS = list(FALLBACK_IPS)
-SECS = 20  # only used by the dry-run tone
 CLOCK_MODE = os.environ.get("CLOCK", "gm")
-DUP = int(os.environ.get("DUP", "0"))
-DUP_MS = float(os.environ.get("DUP_MS", "3"))
 
 SR, CH, FPP = 44100, 2, 352                  # 44.1k stereo s16, 352 frames (8 ms) per packet
 PKT_BYTES = FPP * CH * 2
@@ -65,7 +64,7 @@ class PTPClock:
         self.reset()
     def reset(self):
         self.sync_rx, self.samples = {}, []
-        self.gm = None; self.port_clock = None; self.seen = set()
+        self.gm = None; self.port_clock = None
 
     def on_event(self, sock):
         while True:
@@ -75,7 +74,6 @@ class PTPClock:
             for lvl, typ, cd in anc:
                 if lvl == socket.SOL_SOCKET and typ == SO_TIMESTAMPNS:
                     s, ns = struct.unpack("qq", cd[:16]); rx = s * 10**9 + ns
-            self.seen.add(addr[0])
             if addr[0] == PRIMARY and len(data) >= 34 and data[0] & 0x0F == 0:
                 self.sync_rx[struct.unpack(">H", data[30:32])[0]] = rx or time.time_ns()
 
@@ -83,7 +81,6 @@ class PTPClock:
         while True:
             try: data, addr = sock.recvfrom(2048)
             except BlockingIOError: return
-            self.seen.add(addr[0])
             if addr[0] != PRIMARY or len(data) < 44: continue
             t = data[0] & 0x0F
             if t == 8:
@@ -209,16 +206,13 @@ class Speaker:
         if self.ev: self.ev.close()
         if self.conn: self.conn.close()
 
-def load_pcm(path):
-    if path is None:  # 440 Hz test tone
-        import math
-        return b"".join(struct.pack(">hh", v, v) for v in
-                        (int(6000 * math.sin(2 * math.pi * 440 * i / SR)) for i in range(SR * SECS)))
-    import miniaudio
-    d = miniaudio.decode_file(path, output_format=miniaudio.SampleFormat.SIGNED16, nchannels=CH, sample_rate=SR)
-    s = d.samples; s.byteswap(); return s.tobytes()  # AirPlay PCM is big-endian (pyatv byteswaps too)
+def test_tone(secs):
+    """440 Hz stereo tone as big-endian s16 (AirPlay's PCM byte order), for the dry run."""
+    import math
+    return b"".join(struct.pack(">hh", v, v) for v in
+                    (int(6000 * math.sin(2 * math.pi * 440 * i / SR)) for i in range(int(SR * secs))))
 
-# ---------------------------------------------------------------- live source
+# ---------------------------------------------------------------- logging
 def log(*a):
     print(time.strftime("%H:%M:%S"), *a, flush=True)
 
@@ -392,7 +386,7 @@ async def dry_run():
             self.dsock = type("S", (), {"sendto": lambda s, p, a: setattr(self, "n", self.n + 1)})()
         def send_ctrl(self, pkt): pass
     r, w = os.pipe()
-    tone = load_pcm(None)[:SR * 4 * 2]               # 2 s of (big-endian) tone
+    tone = test_tone(2)                              # 2 s of (big-endian) tone
     feed = tone + bytes(SR * 4 * 3)                  # then 3 s of silence
     def writer():
         f = os.fdopen(w, "wb", buffering=0); t0 = time.monotonic(); pos = 0

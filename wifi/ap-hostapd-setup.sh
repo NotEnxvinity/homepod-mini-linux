@@ -31,7 +31,7 @@ sudo -v
 echo "[1/5] Stop NetworkManager's access point and keep it away from wlan0..."
 sudo nmcli con down homepod-ap >/dev/null 2>&1 || true
 sudo nmcli con delete homepod-ap >/dev/null 2>&1 || true
-printf '[keyfile]\nunmanaged-devices=interface-name:$WLAN_IF\n' | sudo tee /etc/NetworkManager/conf.d/zz-homepod-unmanaged.conf >/dev/null
+printf '[keyfile]\nunmanaged-devices=interface-name:%s\n' "$WLAN_IF" | sudo tee /etc/NetworkManager/conf.d/zz-homepod-unmanaged.conf >/dev/null
 sudo nmcli general reload conf 2>/dev/null || sudo systemctl reload NetworkManager
 sudo systemctl disable --now iwd >/dev/null 2>&1 || true
 
