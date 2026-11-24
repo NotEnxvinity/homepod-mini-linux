@@ -14,6 +14,14 @@ LAT_MS=70
 # Seconds of silence before the minis are released so your Mac/iPhone can use them.
 IDLE_S=20
 
+# Volume set on both minis at the start of every session, in AirPlay dB (0 = max, -30 = quietest),
+# so they can't drift apart. Use your desktop's volume slider for everyday changes.
+VOLUME_DB=-12
+
+# Which channel each mini plays, in SPEAKERS order. Each mini is sent only its own channel.
+# If left and right come out of the wrong minis, set this to "R,L".
+CHANNELS="L,R"
+
 # Linux user whose desktop audio is captured. Defaults to whoever runs install.sh.
 # HOMEPOD_USER=deck
 

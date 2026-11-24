@@ -35,6 +35,8 @@ Environment=LAT_MS=$LAT
 Environment="SPEAKERS=$SPEAKERS"
 Environment="FALLBACK_IPS=$FALLBACK_IPS"
 Environment=IDLE_S=${IDLE_S:-20}
+Environment=VOLUME_DB=${VOLUME_DB:--12}
+Environment=CHANNELS=${CHANNELS:-L,R}
 Environment=HOMEPOD_USER=$HOMEPOD_USER
 ExecStart="$DIR/homepods-service.sh"
 Restart=always

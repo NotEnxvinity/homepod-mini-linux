@@ -10,6 +10,9 @@ Env:  SPEAKERS="Left Name,Right Name"  (AirPlay names, clock-source speaker firs
       FALLBACK_IPS="192.168.1.20,192.168.1.21"  (optional, same order; skips the Bonjour scan)
       LAT_MS (default 70)   IDLE_S (default 20)   FMT=be|le (byte order of stdin, default be)
       SENDER_NAME (name the minis see, default: hostname)
+      VOLUME_DB (default -12; AirPlay dB, 0 = max, -30 = min; set on both minis every session)
+      CHANNELS (default "L,R"): which channel each speaker gets, in SPEAKERS order. Each mini is sent
+                only its own channel (copied to both sides), so it can't play the other side.
       CLOCK=gm|port (clock identity put in the timing packets: the grandmaster's from Announce,
                      default, or the port identity from Sync)
       ./homepodd.py --dry     offline self-test (no speakers or root needed)
@@ -27,6 +30,8 @@ IDLE_S = float(os.environ.get("IDLE_S", "20"))
 FMT = os.environ.get("FMT", "be")
 IPS = list(FALLBACK_IPS)
 CLOCK_MODE = os.environ.get("CLOCK", "gm")
+CHANNELS = [c.strip().upper() for c in os.environ.get("CHANNELS", "L,R").split(",")]  # per speaker, SPEAKERS order
+VOLUME_DB = max(-30.0, min(0.0, float(os.environ.get("VOLUME_DB", "-12"))))  # same for both minis
 
 SR, CH, FPP = 44100, 2, 352                  # 44.1k stereo s16, 352 frames (8 ms) per packet
 PKT_BYTES = FPP * CH * 2
@@ -179,6 +184,11 @@ class Speaker:
         s0 = sb["streams"][0]; self.data_port, self.ctrl_port = s0["dataPort"], s0["controlPort"]
         rec = await self.rtsp.exchange("RECORD", allow_error=True, headers={"Range": "npt=0-"})
         print(f"[{self.ip}] RECORD {rec.code}")
+        # Each mini otherwise keeps its own last volume, so the pair drifts out of balance.
+        # Force the same AirPlay volume on every speaker (dB: 0 = max, -30 = quietest) each session.
+        vol = await self.rtsp.exchange("SET_PARAMETER", allow_error=True, content_type="text/parameters",
+                                       body=f"volume: {VOLUME_DB:.6f}\r\n".encode())
+        print(f"[{self.ip}] volume {VOLUME_DB} dB -> {vol.code}")
         self.cipher = Chacha20Cipher8byteNonce(shk, shk)
         self.dsock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); self.dsock.bind((self.me, 0))
         self.dsock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 1 << 20)
@@ -205,6 +215,15 @@ class Speaker:
         except Exception: pass
         if self.ev: self.ev.close()
         if self.conn: self.conn.close()
+
+def only_channel(audio, ch):
+    """Interleaved s16 stereo -> that one channel copied to both sides (works for either byte order)."""
+    if ch not in ("L", "R"): return audio
+    src = 0 if ch == "L" else 2
+    out = bytearray(len(audio))
+    for k in (0, 2):
+        out[k::4] = audio[src::4]; out[k + 1::4] = audio[src + 1::4]
+    return bytes(out)
 
 def test_tone(secs):
     """440 Hz stereo tone as big-endian s16 (AirPlay's PCM byte order), for the dry run."""
@@ -327,7 +346,8 @@ async def stream(source, speakers, clock, stop):
             sync_k += 1; stats["syncs"] += 1
         hdr = rtp_header(first, seq, ts0 + i * FPP, ssrc)
         audio = source.take()
-        for sp in speakers: sp.send_audio(seq, hdr, audio)
+        for n, sp in enumerate(speakers):
+            sp.send_audio(seq, hdr, only_channel(audio, CHANNELS[n] if len(speakers) > 1 and n < len(CHANNELS) else ""))
         stats["pkts"] += 1; first = False; seq += 1; i += 1
     return "eof" if source.eof else "stop"
 
@@ -357,7 +377,7 @@ async def session(source, clock, ev_s, gen_s, stop):
             log("no PTP from", PRIMARY, "- will retry"); return "error"
         for sp in speakers: await sp.setup_stream(IPS)
         stats["sessions"] += 1; LAST_GOOD = list(IPS)
-        log(f"streaming (latency {LAT_MS} ms)")
+        log(f"streaming (latency {LAT_MS} ms)" + (f" | channels {dict(zip(IPS, CHANNELS))}" if len(IPS) > 1 else ""))
         why = await stream(source, speakers, clock, stop)
         log(f"session ended: {why}  | late {stats['late_sends']} underruns {stats['underruns']} trims {stats['trims']} "
             f"resend req {[sp.resend_req for sp in speakers]}")

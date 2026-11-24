@@ -68,6 +68,8 @@ Then play something. The **HomePods** output is already the default.
 - `LAT_MS` (default 70): the delay the minis are told to buffer. Lower is snappier but more sensitive to Wi-Fi hiccups. Total end-to-end delay ends up about 20–30 ms above this.
 - `FALLBACK_IPS`: put your minis' IPs here (and reserve them in your router) to skip the Bonjour scan, so audio starts faster.
 - `IDLE_S` (default 20): seconds of silence before the minis are released.
+- `VOLUME_DB` (default -12): the volume set on both minis at the start of every session, so one can't end up louder than the other. Your desktop volume slider still works on top of it.
+- `CHANNELS` (default `L,R`): which channel each mini plays, in `SPEAKERS` order. Each mini is sent only its own channel, so neither can fall back to playing both. If left and right are swapped, use `R,L`.
 
 ## Optional: dedicated Wi-Fi for the minis
 
