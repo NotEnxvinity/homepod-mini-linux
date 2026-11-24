@@ -136,8 +136,13 @@ with a 10 ms capture latency, and pipes it to homepodd. homepodd keeps a small c
 send:
 - It starts at **4 packets (32 ms)**. Each time capture runs dry it sends silence, grows the
   cushion by one packet (up to 6, 48 ms) and waits for it to refill.
-- If capture gets more than 8 packets ahead of the cushion (the local and PTP clocks drift
-  apart), it drops the excess to stay near live.
+- The PipeWire sink runs on the local clock and packets go out on the minis' PTP clock, so the
+  buffer slowly drifts. homepodd tracks a smoothed fill level and, when it strays more than half
+  a packet from the target, reads 353 or 351 frames instead of 352 and resamples them to 352
+  (about a 0.3% pitch change for 8 ms, which you can't hear). That keeps the buffer centered
+  without cutting audio, which used to cause pops and cutouts.
+- Only if capture gets more than 40 packets ahead (a real stall, not drift) does it drop the
+  excess to jump back to live.
 - Audio counts as "present" when sampled bytes aren't all `0x00`/`0xFF` and some sample
   exceeds ±8. After `IDLE_S` seconds without any, the session is torn down.
 

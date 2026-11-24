@@ -38,7 +38,7 @@ PKT_BYTES = FPP * CH * 2
 LAT = int(SR * LAT_MS / 1000)                # latency in samples
 MY_CLOCK = bytes.fromhex("aabbccfffe5ea111")
 SO_TIMESTAMPNS = getattr(socket, "SO_TIMESTAMPNS", 35)
-stats = {"ptp": 0, "late_sends": 0, "syncs": 0, "pkts": 0, "underruns": 0, "trims": 0, "sessions": 0}
+stats = {"ptp": 0, "late_sends": 0, "syncs": 0, "pkts": 0, "underruns": 0, "trims": 0, "nudges": 0, "sessions": 0}
 PRIMARY = None   # set per session to the first speaker's IP
 
 # ---------------------------------------------------------------- PTP follower
@@ -264,14 +264,46 @@ class LiveSource:
                     del self.buf[:len(self.buf) - self.TARGET * PKT_BYTES - (len(self.buf) % 4)]
     def sound_recent(self, secs): return time.monotonic() - self.last_sound < secs
     def reset(self):
-        with self.lock: del self.buf[:]
+        with self.lock: del self.buf[:]; self.fill = None
     def level(self):
         with self.lock: return len(self.buf) // PKT_BYTES
+    # Drift correction (what CoreAudio does on a Mac: the output clock follows the speaker's clock).
+    # PipeWire's null sink runs on the Steam Machine's clock, packets go out on the mini's PTP clock,
+    # and the two crystals never tick at exactly the same rate. Instead of letting the buffer creep
+    # until a whole chunk gets cut (skip/pop) or it runs dry (cutout), nudge it back one frame at a
+    # time: read 353 or 351 frames and resample them to 352. That's a ~0.3% pitch change on a single
+    # 8 ms packet, which you can't hear.
+    fill = None                                  # smoothed buffer fill, in frames
+    def _fit(self, raw, n_in):
+        """Linearly resample n_in stereo s16be frames to FPP frames."""
+        a = array.array("h", raw)
+        if sys.byteorder == "little": a.byteswap()
+        out = array.array("h", bytes(PKT_BYTES))
+        step = (n_in - 1) / (FPP - 1)
+        for j in range(FPP):
+            x = j * step; k = int(x); f = x - k
+            k2 = min(k + 1, n_in - 1)
+            for c in (0, 1):
+                s0, s1 = a[2 * k + c], a[2 * k2 + c]
+                out[2 * j + c] = int(s0 + (s1 - s0) * f)
+        if sys.byteorder == "little": out.byteswap()
+        return out.tobytes()
     def take(self):
         with self.lock:
-            if len(self.buf) > (self.TARGET + 8) * PKT_BYTES:      # drifted too far behind live
+            if len(self.buf) > (self.TARGET + 40) * PKT_BYTES:     # way behind (a stall, not drift): jump to live
                 cut = len(self.buf) - self.TARGET * PKT_BYTES
-                cut -= cut % 4; del self.buf[:cut]; stats["trims"] += 1
+                cut -= cut % 4; del self.buf[:cut]; stats["trims"] += 1; self.fill = None
+            frames = len(self.buf) // 4
+            self.fill = frames if self.fill is None else self.fill + 0.01 * (frames - self.fill)
+            err = self.fill - self.TARGET * FPP
+            n_in = FPP + 1 if err > FPP / 2 else FPP - 1 if err < -FPP / 2 else FPP
+            if n_in != FPP and not self.rebuffer and frames >= n_in:
+                raw = bytes(self.buf[:n_in * 4]); del self.buf[:n_in * 4]
+                stats["nudges"] += 1
+                out = self._fit(raw, n_in)
+                if self.swap:
+                    a = array.array("h", out); a.byteswap(); out = a.tobytes()
+                return out
             if self.rebuffer:                                     # refilling after an underrun
                 if len(self.buf) < self.TARGET * PKT_BYTES: return bytes(PKT_BYTES)
                 self.rebuffer = False
@@ -330,8 +362,8 @@ async def stream(source, speakers, clock, stop):
         if i % 125 == 0 and not source.sound_recent(IDLE_S):
             return "idle"
         if i and i % 7500 == 0:          # once a minute while streaming
-            d = {k: stats[k] - last[k] for k in ("late_sends", "underruns", "trims")}; last = dict(stats)
-            log(f"  last 60 s: late {d['late_sends']} underruns {d['underruns']} trims {d['trims']} "
+            d = {k: stats[k] - last[k] for k in ("late_sends", "underruns", "trims", "nudges")}; last = dict(stats)
+            log(f"  last 60 s: late {d['late_sends']} underruns {d['underruns']} trims {d['trims']} nudges {d['nudges']} "
                 f"buffer {source.level()}/{source.TARGET} resend req {[sp.resend_req for sp in speakers]} "
                 f"clock offset {clock.offset()/1e6:.3f} ms")
         due_dev = dev0 + (i * FPP * 10**9) // SR
